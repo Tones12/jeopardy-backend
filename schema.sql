@@ -6,8 +6,8 @@ CREATE TABLE categories (
 CREATE TABLE clues (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     category_id INTEGER,
-    question_text TEXT NOT NULL,
-    answer_text TEXT NOT NULL,
+    clue_text TEXT NOT NULL,
+    correct_response TEXT NOT NULL,
     dollar_value INTEGER NOT NULL,
     is_daily_double INTEGER DEFAULT 0,
     FOREIGN KEY (category_id) REFERENCES categories(id)
