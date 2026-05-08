@@ -91,7 +91,7 @@ def main():
                 y_position = screen_row * row_height
                 clue_rect = pygame.Rect(col_idx * col_width, y_position, col_width, row_height)
 
-                
+                # 3. Paint the blue box and black border
                 pygame.draw.rect(screen, JEOPARDY_BLUE, clue_rect)
                 pygame.draw.rect(screen, BLACK, clue_rect, 3) # Border
                 
