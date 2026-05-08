@@ -16,6 +16,44 @@ def draw_text_centered(surface, text, font, color, rect):
     text_rect = text_surface.get_rect(center=rect.center)
     surface.blit(text_surface, text_rect)
 
+def draw_text_wrapped(surface, text, font, color, rect):
+    """Helper function to word-wrap text inside a specific rectangle (Left-Aligned)"""
+    words = text.split(' ')
+    lines = []
+    current_line = []
+
+    # 1. Group words into lines that fit the width (with 40px total padding)
+    for word in words:
+        current_line.append(word)
+        test_line = ' '.join(current_line)
+        width, height = font.size(test_line)
+        
+        # If it's too wide, bump the word to the next line
+        if width > rect.width - 40: 
+            current_line.pop() 
+            if current_line:
+                lines.append(' '.join(current_line))
+            current_line = [word] 
+            
+    if current_line:
+        lines.append(' '.join(current_line))
+        
+    # 2. Calculate the vertical centering for the whole block of text
+    line_height = font.get_linesize()
+    total_height = len(lines) * line_height
+    start_y = rect.centery - (total_height // 2)
+    
+# 3. Draw each line CENTER-ALIGNED
+    for i, line in enumerate(lines):
+        text_surface = font.render(line, True, color)
+        
+        # THE FIX: Center horizontally (centerx), but offset vertically based on the line number (i)
+        # We add (line_height // 2) because center anchors to the middle of the text, not the top!
+        y_position = start_y + (i * line_height) + (line_height // 2)
+        text_rect = text_surface.get_rect(center=(rect.centerx, y_position))
+        
+        surface.blit(text_surface, text_rect)
+
 def main():
     # Initiate pygame
     pygame.init()
@@ -43,6 +81,8 @@ def main():
     # --- NEW: Set up fonts ---
     header_font = pygame.font.SysFont('impact', 36)
     value_font = pygame.font.SysFont('impact', 54)
+    clue_font = pygame.font.SysFont('arial', 24)
+
 
     revealed_clues = set()
     
@@ -97,9 +137,8 @@ def main():
                 
                 # --- NEW: The Reveal Logic ---
                 if (col_idx, screen_row) in revealed_clues:
-                    # They clicked this box! Draw the clue text.
-                    # We use header_font here because clue text is long and needs to be smaller
-                    draw_text_centered(screen, clue['clue'], header_font, WHITE, clue_rect)
+                    # NEW: Use the wrapping function for the long clue text!
+                    draw_text_wrapped(screen, clue['clue'], clue_font, WHITE, clue_rect)
                 else:
                     # Nobody clicked it yet. Draw the money!
                     dollar_amount = f"${clue['value']}"
