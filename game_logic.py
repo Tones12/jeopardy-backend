@@ -41,8 +41,6 @@ def generate_board():
     
     connection.close()
 
-    print(json.dumps(board_data, indent=4))
-
     return board_data
 
 # Collect player information and insert into SQL table. input is a list of players
@@ -114,7 +112,7 @@ def record_answer(game_id, clue_id, player_id):
     print(f"Success: Player {player_id} captured Clue {clue_id}!")
     return True
 
-# Score calulation and table updates function
+# Score calculation and table updates function
 def calculate_scores(game_id):
     # Initiate db connection
     connection = sqlite3.connect("jeopardy.db")
@@ -148,13 +146,3 @@ def calculate_scores(game_id):
     connection.close()
 
     return leaderboard_results
-
-record_answer(1, 1, 1)
-
-calculate_scores(1)
-
-#create_game_session()
-
-#generate_board()
-
-#register_players(['Brittany', 'Anna', 'Alex', 'Tony'])
