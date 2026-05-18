@@ -1,6 +1,20 @@
 import pygame
 import sys
+import threading
+import queue
+import logging
+from flask import Flask
 from game_logic import generate_board
+
+# --- DISABLE FLASK TERMINAL SPAM ---
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.ERROR)
+
+# --- BUZZER QUEUE ---
+buzzer_queue = queue.Queue()
+
+# --- WEB SERVER ---
+app = Flask(__name__)
 
 # --- CONFIGURATION ---
 WIDTH = 1200
@@ -9,6 +23,41 @@ BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
 JEOPARDY_BLUE = (6, 12, 233)
 GOLD = (214, 159, 76)
+
+@app.route('/<player_num')
+def buzzer_page(player_num):
+    colors = {"1": "red", "2": "blue", "3": "green", "4": "purple"}
+    bg_color = colors.get(player_num, "gray")
+
+    return f"""
+    <html>
+        <head>
+            <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+            <style>
+                body {{ display: flex; justify-content: center; align-items: center; height: 100vh; background-color: #222; margin: 0; }}
+                .buzzer {{ width: 80vw; height: 80vw; max-width: 400px; max-height: 400px; border-radius: 50%; 
+                           background-color: {bg_color}; color: white; font-size: 50px; font-weight: bold; border: 10px solid black; }}
+                .buzzer:active {{ opacity: 0.5; }}
+            </style>
+        </head>
+        <body>
+            <form action="/buzz/{player_num}" method="POST">
+                <button class="buzzer" type="submit">PLAYER {player_num}</button>
+            </form>
+        </body>
+    </html>
+    """
+
+# --- BUTTON PRESS INTO QUEUE ---
+@app.route('/buzz/<player_num>', methods=['POST'])
+def buzz(player_num):
+    # Player number sent to Pygame mailbox
+    buzzer_queue.put(player_num)
+    return f"<script>winder.location.href='/{player_num}';</script>"
+
+# --- ENGINE: run on concurrent thread as game ---
+def run_flask_server():
+    app.run(host='0.0.0.0', port=5000, debug=False, use_reloade=False)
 
 def draw_text_centered(surface, text, font, color, rect):
     """Helper function to perfectly center text inside a box"""
@@ -83,9 +132,14 @@ def main():
     value_font = pygame.font.SysFont('impact', 54)
     clue_font = pygame.font.SysFont('arial', 24)
 
+    revealed_clues = set()
+
+    # Web server initiation on background thread
+    print("Starting Web Server for Buzzers...")
+    web_thread = threading.Thread(target=run_flask_server, daemon=True)
+    web_thread.start()
 
     revealed_clues = set()
-    
     running = True
     while running:
         # Check for events (like clicking the 'X' to close the window)
@@ -101,12 +155,22 @@ def main():
                 clicked_col = click_x // col_width
                 clicked_row = click_y // row_height
                 
-                # We only care if they clicked row 1-5 (clues). Row 0 is the header!
+                # Just register clicks on clues, not the categories
                 if clicked_row > 0:
                     # Save this specific coordinate pair to our set
                     revealed_clues.add((clicked_col, clicked_row))
                     print(f"BAM! Clicked Col {clicked_col}, Row {clicked_row}")
         
+        # --- NEW: Buzzer Mailbox Check ---
+        try:
+            buzzed_player = buzzer_queue.get_nowait()
+            print(f"BING! Player {buzzed_player} buzzed in!")
+
+            #TODO: Add visual Pygame logic here to show who buzzed.
+        
+        except queue.Empty():
+            pass # Mailbox is empty, proceed through game loop
+
         # Paint the whole screen black to clear the previous frame
         screen.fill(BLACK)
 
