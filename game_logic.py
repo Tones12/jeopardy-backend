@@ -26,7 +26,7 @@ def generate_board():
         cursor.execute("SELECT * FROM clues WHERE category_id = ? ORDER BY dollar_value", (cat_id,))
         clues_results = cursor.fetchall()
 
-        # Unpack SQLite rows into python list of dictiories
+        # Unpack SQLite rows into python list of dictionaries
         clean_clues_list = []
         for clue_row in clues_results:
             clean_clue = {
