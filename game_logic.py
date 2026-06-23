@@ -1,6 +1,7 @@
 import sqlite3
 import json
 import datetime
+import random
 
 # Game board generation function, grabs categories and clues from SQL database and formats for the game
 def generate_board():
@@ -9,6 +10,16 @@ def generate_board():
     connection.row_factory = sqlite3.Row
     cursor = connection.cursor()
     
+    # Determine Daily Double
+    cursor.execute("UPDATE clues SET is_daily_double = 0;")
+    
+    cursor.execute("SELECT id FROM clues;")
+    all_clue_ids = [row['id'] for row in cursor.fetchall()]
+
+    daily_double_id = random.choice(all_clue_ids)
+    cursor.execute("UPDATE clues SET is_daily_double = 1 WHERE id = ?;", (daily_double_id,))
+    connection.commit()
+
     # Master game board dictionary
     board_data = {}
 

@@ -1,25 +1,25 @@
 import sqlite3
 
-def seed_database():
-    # Make sure this matches the actual name of your database file!
-    # Common names might be 'jeopardy.db', 'game.db', or 'database.sqlite'
-    db_name = 'jeopardy.db' 
+def build_database():
+    db_name = 'jeopardy.db'
     
     print(f"Connecting to {db_name}...")
     conn = sqlite3.connect(db_name)
     cursor = conn.cursor()
 
-    print("Reading seed.sql...")
-    with open('seed.sql', 'r', encoding='utf-8') as file:
-        sql_script = file.read()
+    # --- NEW: Build the structure first! ---
+    print("Building schema...")
+    with open('schema.sql', 'r', encoding='utf-8') as f:
+        cursor.executescript(f.read())
 
-    print("Executing SQL script...")
-    cursor.executescript(sql_script)
+    # --- Fill it with data ---
+    print("Seeding data...")
+    with open('seed.sql', 'r', encoding='utf-8') as f:
+        cursor.executescript(f.read())
     
     conn.commit()
     conn.close()
-    
-    print("✅ Database successfully wiped and seeded with the new categories!")
+    print("✅ Database successfully built and seeded!")
 
 if __name__ == "__main__":
-    seed_database()
+    build_database()
