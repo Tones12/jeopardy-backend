@@ -123,6 +123,7 @@ def main():
     is_wager_screen = False
     wager_text = ""
     revealed_clues = set()
+    is_game_over = False
 
     # Setup web server
     print("Starting Web Server for Buzzers...")
@@ -135,6 +136,21 @@ def main():
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+            
+            # --- NEW HOST CONTROL: ADVANCE ROUND (SPACE KEY) ---
+            elif event.type == pygame.KEYDOWN and not active_clue and not is_wager_screen:
+                if event.key == pygame.K_SPACE: 
+                    if current_round_idx < 2:
+                        current_round_idx += 1
+                        print(f"--- ADVANCING TO {rounds[current_round_idx].upper()} ---")
+                        board_data, categories, num_cols, num_rows, col_width, row_height = load_round_state(current_round_idx)
+                        revealed_clues.clear()
+                        current_buzzer = None
+                        while not buzzer_queue.empty():
+                            buzzer_queue.get_nowait()
+                    elif current_round_idx == 2: # <--- NEW: End the game!
+                        print("--- CALCULATING FINAL SCORES ---")
+                        is_game_over = True
             
             # STATE A: Main Board Clicks
             elif event.type == pygame.MOUSEBUTTONDOWN and not active_clue:
@@ -184,34 +200,58 @@ def main():
                         buzzer_queue.get_nowait()
 
         # --- 2. MAILBOX CHECK ---
-        if active_clue and not current_buzzer and not is_wager_screen:
+        # Note: We disable buzzers entirely during Final Jeopardy!
+        if active_clue and not current_buzzer and not is_wager_screen and current_round_idx != 2:
             try:
                 current_buzzer = buzzer_queue.get_nowait()
             except queue.Empty:
                 pass
 
-        # --- 3. PAINT THE GRID ---
+        # --- 3. PAINT THE GRID OR LEADERBOARD ---
         screen.fill(BLACK)
-        for col_idx, category_name in enumerate(categories):
-            header_rect = pygame.Rect(col_idx * col_width, 0, col_width, row_height)
-            pygame.draw.rect(screen, JEOPARDY_BLUE, header_rect)
-            pygame.draw.rect(screen, BLACK, header_rect, 3) 
-            draw_text_centered(screen, category_name.upper(), header_font, WHITE, header_rect)
-
-            clues = board_data[category_name]
-            for row_idx, clue in enumerate(clues):
-                screen_row = row_idx + 1
-                y_position = screen_row * row_height
-                clue_rect = pygame.Rect(col_idx * col_width, y_position, col_width, row_height)
-
-                pygame.draw.rect(screen, JEOPARDY_BLUE, clue_rect)
-                pygame.draw.rect(screen, BLACK, clue_rect, 3) 
+        
+        if is_game_over:
+            # Sort players by score, highest to lowest
+            sorted_players = sorted(player_scores.items(), key=lambda x: x[1], reverse=True)
+            
+            title_rect = pygame.Rect(0, 50, WIDTH, 100)
+            draw_text_centered(screen, "FINAL STANDINGS", value_font, GOLD, title_rect)
+            
+            # Loop through the sorted list and draw each player
+            for index, (p_num, score) in enumerate(sorted_players):
+                # The winner gets Gold text, everyone else gets White
+                color = GOLD if index == 0 else WHITE
+                text = f"{index + 1}. Player {p_num}   -   ${score}"
                 
-                if (col_idx, screen_row) in revealed_clues:
-                    pass 
-                else:
-                    dollar_amount = f"${clue['value']}"
-                    draw_text_centered(screen, dollar_amount, value_font, GOLD, clue_rect)
+                row_rect = pygame.Rect(0, 200 + (index * 100), WIDTH, 100)
+                draw_text_centered(screen, text, value_font, color, row_rect)
+                
+        else:
+            # Draw the normal grid
+            for col_idx, category_name in enumerate(categories):
+                header_rect = pygame.Rect(col_idx * col_width, 0, col_width, row_height)
+                pygame.draw.rect(screen, JEOPARDY_BLUE, header_rect)
+                pygame.draw.rect(screen, BLACK, header_rect, 3) 
+                draw_text_centered(screen, category_name.upper(), header_font, WHITE, header_rect)
+
+                clues = board_data[category_name]
+                for row_idx, clue in enumerate(clues):
+                    screen_row = row_idx + 1
+                    y_position = screen_row * row_height
+                    clue_rect = pygame.Rect(col_idx * col_width, y_position, col_width, row_height)
+
+                    pygame.draw.rect(screen, JEOPARDY_BLUE, clue_rect)
+                    pygame.draw.rect(screen, BLACK, clue_rect, 3) 
+                    
+                    if (col_idx, screen_row) in revealed_clues:
+                        pass 
+                    else:
+                        # Dynamic formatting for Final Jeopardy
+                        if current_round_idx == 2:
+                            box_text = "FINAL JEOPARDY"
+                        else:
+                            box_text = f"${clue['value']}"
+                        draw_text_centered(screen, box_text, value_font, GOLD, clue_rect)
 
         # --- 4. THE FULL-SCREEN OVERLAY ---
         if active_clue:
