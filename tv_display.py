@@ -131,7 +131,7 @@ def main():
 
     running = True
     while running:
-        # --- 1. EVENT HANDLING ---
+        # Event handling during game
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
@@ -155,7 +155,7 @@ def main():
                     while not buzzer_queue.empty():
                         buzzer_queue.get_nowait()
 
-            # STATE C: Daily Double Wager Typing
+            # STATE B: Daily Double Wager Typing
             elif event.type == pygame.KEYDOWN and is_wager_screen:
                 if event.key == pygame.K_RETURN and wager_text != "":
                     active_clue['value'] = int(wager_text)
@@ -165,7 +165,7 @@ def main():
                 elif event.unicode.isnumeric():
                     wager_text += event.unicode  
 
-            # STATE B: Host Controls (Y/N/ESC)
+            # STATE C: Host Controls (Y/N/ESC)
             elif event.type == pygame.KEYDOWN and active_clue and not is_wager_screen:
                 if event.key == pygame.K_ESCAPE: 
                     revealed_clues.add(active_col_row)
