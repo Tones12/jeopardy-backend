@@ -1,23 +1,34 @@
 import logging
 import queue
-from flask import Flask, request, redirect
+from flask import Flask, request, redirect, jsonify
 
 # --- DISABLE FLASK TERMINAL SPAM ---
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
 
 # --- SHARED STATE MEMORY ---
-# We define these here so tv_display.py can import and read them!
 buzzer_queue = queue.Queue()
+host_command_queue = queue.Queue() # NEW: Passes iPad button clicks back to Pygame
+
 registered_players = {}
 next_available_slot = 1
 
-# --- THE WEB SERVER ---
+# NEW: Pygame will constantly update this dictionary so the iPad knows what is happening
+host_state = {
+    "is_active": False,
+    "clue": "Waiting for host to select a clue...",
+    "answer": "",
+    "value": 0,
+    "buzzer_name": None
+}
+
 app = Flask(__name__)
 
+# ==========================================
+# PLAYER ROUTES
+# ==========================================
 @app.route('/')
 def registration_page():
-    """Step 1: The Landing Page. Captures the human name."""
     return """
     <html>
         <head>
@@ -40,32 +51,24 @@ def registration_page():
 
 @app.route('/register', methods=['POST'])
 def handle_registration():
-    """Step 2: The Logic Gate. Dynamically assigns a name to an open physical slot."""
     global next_available_slot
-    
     name = request.form.get('player_name', '').strip()
-    if not name:
-        return "Name cannot be blank!", 400
+    if not name: return "Name cannot be blank!", 400
         
     for slot, existing_name in registered_players.items():
         if existing_name.lower() == name.lower():
             return redirect(f'/buzzer/{slot}')
             
-    if next_available_slot > 4:
-        return "The game lobby is full! Maximum 4 players.", 403
+    if next_available_slot > 4: return "Lobby full!", 403
         
     assigned_slot = str(next_available_slot)
     registered_players[assigned_slot] = name
     next_available_slot += 1
-    
     return redirect(f'/buzzer/{assigned_slot}')
 
 @app.route('/buzzer/<player_num>')
 def buzzer_page(player_num):
-    """Step 3: The View. Renders the custom button with the human name."""
-    if player_num not in registered_players:
-        return redirect('/')
-        
+    if player_num not in registered_players: return redirect('/')
     name = registered_players[player_num]
     colors = {"1": "red", "2": "blue", "3": "green", "4": "purple"}
     bg_color = colors.get(player_num, "gray")
@@ -83,11 +86,7 @@ def buzzer_page(player_num):
         </head>
         <body>
             <button class="buzzer" onclick="sendBuzz()">{name.upper()}</button>
-            <script>
-                function sendBuzz() {{
-                    fetch('/buzz/{player_num}', {{ method: 'POST' }});
-                }}
-            </script>
+            <script>function sendBuzz() {{ fetch('/buzz/{player_num}', {{ method: 'POST' }}); }}</script>
         </body>
     </html>
     """
@@ -97,6 +96,82 @@ def buzz(player_num):
     buzzer_queue.put(player_num)
     return "OK", 200
 
+# ==========================================
+# HOST ROUTES (THE PODIUM)
+# ==========================================
+@app.route('/host')
+def host_dashboard():
+    """The private screen for the host to see answers and press buttons."""
+    return """
+    <html>
+        <head>
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <style>
+                body { background-color: #111; color: white; font-family: sans-serif; padding: 20px; text-align: center; }
+                .card { background-color: #060CE9; border: 3px solid white; padding: 20px; border-radius: 10px; margin-bottom: 20px; }
+                h1 { color: #D69F4C; }
+                h2 { color: #00FF00; font-size: 28px; }
+                .btn { padding: 15px 20px; font-size: 18px; margin: 10px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; width: 45%; }
+                .btn-green { background-color: #4CAF50; color: white; }
+                .btn-red { background-color: #f44336; color: white; }
+                .btn-gray { background-color: #555; color: white; width: 95%; margin-top: 20px;}
+                #buzzer-alert { font-size: 24px; color: yellow; font-weight: bold; margin-top: 15px; }
+            </style>
+        </head>
+        <body>
+            <h1>HOST PODIUM</h1>
+            
+            <div class="card">
+                <p><strong>Clue Value:</strong> $<span id="val">0</span></p>
+                <p style="font-size: 20px;" id="clue">Waiting for clue...</p>
+                <hr>
+                <p><strong>Correct Response:</strong></p>
+                <h2 id="ans">--</h2>
+                <div id="buzzer-alert"></div>
+            </div>
+
+            <div>
+                <button class="btn btn-green" onclick="sendCommand('y')">CORRECT (Y)</button>
+                <button class="btn btn-red" onclick="sendCommand('n')">WRONG (N)</button>
+            </div>
+            <button class="btn btn-gray" onclick="sendCommand('esc')">CANCEL CLUE (ESC)</button>
+
+            <script>
+                // This asks the server for the game state every 500 milliseconds!
+                setInterval(() => {
+                    fetch('/host/state')
+                        .then(res => res.json())
+                        .then(data => {
+                            document.getElementById('val').innerText = data.value;
+                            document.getElementById('clue').innerText = data.clue;
+                            document.getElementById('ans').innerText = data.answer;
+                            
+                            if (data.buzzer_name) {
+                                document.getElementById('buzzer-alert').innerText = "🚨 " + data.buzzer_name.toUpperCase() + " BUZZED! 🚨";
+                            } else {
+                                document.getElementById('buzzer-alert').innerText = "";
+                            }
+                        });
+                }, 500);
+
+                function sendCommand(cmd) {
+                    fetch('/host/command/' + cmd, { method: 'POST' });
+                }
+            </script>
+        </body>
+    </html>
+    """
+
+@app.route('/host/state')
+def get_host_state():
+    """JS fetches this to update the iPad screen"""
+    return jsonify(host_state)
+
+@app.route('/host/command/<cmd>', methods=['POST'])
+def host_command(cmd):
+    """Takes button presses from the iPad and sends them to Pygame"""
+    host_command_queue.put(cmd)
+    return "OK", 200
+
 def run_flask_server():
-    """Starts the Flask server loop"""
     app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)

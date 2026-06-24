@@ -3,9 +3,10 @@ import sys
 import threading
 import queue
 from game_logic import generate_board
-from buzzer_server import run_flask_server, buzzer_queue, registered_players
 
-# --- CONFIGURATION ---
+# --- IMPORT THE NEW HOST STATE & COMMAND QUEUE ---
+from buzzer_server import run_flask_server, buzzer_queue, registered_players, host_state, host_command_queue
+
 WIDTH = 1200
 HEIGHT = 800
 BLACK = (0, 0, 0)
@@ -28,11 +29,9 @@ def draw_text_wrapped(surface, text, font, color, rect):
         width, height = font.size(test_line)
         if width > rect.width - 40: 
             current_line.pop() 
-            if current_line:
-                lines.append(' '.join(current_line))
+            if current_line: lines.append(' '.join(current_line))
             current_line = [word] 
-    if current_line:
-        lines.append(' '.join(current_line))
+    if current_line: lines.append(' '.join(current_line))
         
     line_height = font.get_linesize()
     total_height = len(lines) * line_height
@@ -81,8 +80,47 @@ def main():
     web_thread = threading.Thread(target=run_flask_server, daemon=True)
     web_thread.start()
 
+    def process_host_command(cmd_string):
+        """Helper to process host commands from either Keyboard OR the iPad!"""
+        nonlocal active_clue, current_buzzer
+        if not active_clue or is_wager_screen:
+            return
+
+        if cmd_string == 'esc':
+            revealed_clues.add(active_col_row)
+            active_clue = None
+            host_state["is_active"] = False
+            host_state["clue"] = "Waiting for host to select a clue..."
+            host_state["answer"] = ""
+            host_state["buzzer_name"] = None
+        
+        elif cmd_string == 'y' and current_buzzer:
+            player_scores[current_buzzer] += active_clue['value']
+            revealed_clues.add(active_col_row)
+            active_clue = None
+            current_buzzer = None
+            host_state["is_active"] = False
+            host_state["clue"] = "Waiting for host to select a clue..."
+            host_state["answer"] = ""
+            host_state["buzzer_name"] = None
+            
+        elif cmd_string == 'n' and current_buzzer:
+            player_scores[current_buzzer] -= active_clue['value']
+            current_buzzer = None 
+            host_state["buzzer_name"] = None # Clear the alert on the iPad
+            while not buzzer_queue.empty():
+                buzzer_queue.get_nowait()
+
     running = True
     while running:
+        # --- 1. CHECK HOST COMMANDS ---
+        try:
+            remote_cmd = host_command_queue.get_nowait()
+            process_host_command(remote_cmd)
+        except queue.Empty:
+            pass
+
+        # --- 2. EVENT HANDLING (Keyboard/Mouse) ---
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
@@ -114,6 +152,13 @@ def main():
                     active_col_row = (clicked_col, clicked_row)
                     current_buzzer = None
                     
+                    # --- NEW: PUSH DATA TO IPAD ---
+                    host_state["is_active"] = True
+                    host_state["value"] = active_clue['value']
+                    host_state["clue"] = active_clue['clue']
+                    host_state["answer"] = active_clue['answer']
+                    host_state["buzzer_name"] = None
+                    
                     if active_clue.get('is_daily_double', False):
                         is_wager_screen = True
                         wager_text = ""
@@ -124,6 +169,7 @@ def main():
             elif event.type == pygame.KEYDOWN and is_wager_screen:
                 if event.key == pygame.K_RETURN and wager_text != "":
                     active_clue['value'] = int(wager_text)
+                    host_state["value"] = active_clue['value'] # Update iPad with new wager
                     is_wager_screen = False
                 elif event.key == pygame.K_BACKSPACE:
                     wager_text = wager_text[:-1] 
@@ -131,28 +177,20 @@ def main():
                     wager_text += event.unicode  
 
             elif event.type == pygame.KEYDOWN and active_clue and not is_wager_screen:
-                if event.key == pygame.K_ESCAPE: 
-                    revealed_clues.add(active_col_row)
-                    active_clue = None
-                    
-                elif event.key == pygame.K_y and current_buzzer: 
-                    player_scores[current_buzzer] += active_clue['value']
-                    revealed_clues.add(active_col_row)
-                    active_clue = None
-                    current_buzzer = None
-                    
-                elif event.key == pygame.K_n and current_buzzer: 
-                    player_scores[current_buzzer] -= active_clue['value']
-                    current_buzzer = None 
-                    while not buzzer_queue.empty():
-                        buzzer_queue.get_nowait()
+                if event.key == pygame.K_ESCAPE: process_host_command('esc')
+                elif event.key == pygame.K_y: process_host_command('y')
+                elif event.key == pygame.K_n: process_host_command('n')
 
+        # --- 3. CHECK PHONE BUZZERS ---
         if active_clue and not current_buzzer and not is_wager_screen and current_round_idx != 2:
             try:
                 current_buzzer = buzzer_queue.get_nowait()
+                # --- NEW: PUSH BUZZER NAME TO IPAD ---
+                host_state["buzzer_name"] = registered_players.get(current_buzzer, f"Player {current_buzzer}")
             except queue.Empty:
                 pass
 
+        # --- 4. RENDER SCREEN ---
         screen.fill(BLACK)
         
         if is_game_over:
@@ -209,7 +247,6 @@ def main():
                     alert_text = f"🚨 {display_name.upper()} BUZZED! (Y=Correct, N=Incorrect) 🚨"
                     draw_text_centered(screen, alert_text, header_font, GOLD, banner_rect)
 
-        # --- THE SCOREBOARD ---
         score_rect = pygame.Rect(0, HEIGHT - 60, WIDTH, 60)
         pygame.draw.rect(screen, BLACK, score_rect)
         pygame.draw.line(screen, WHITE, (0, HEIGHT - 60), (WIDTH, HEIGHT - 60), 3)
