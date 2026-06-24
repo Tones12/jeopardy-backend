@@ -4,54 +4,62 @@ import datetime
 import random
 
 # Game board generation function, grabs categories and clues from SQL database and formats for the game
-def generate_board():
-    # Set up connection to SQL database
+def generate_board(round_name="Jeopardy"):
+    # DB connection
     connection = sqlite3.connect("jeopardy.db")
     connection.row_factory = sqlite3.Row
     cursor = connection.cursor()
     
     # Determine Daily Double
+    # reset clue daily double status
     cursor.execute("UPDATE clues SET is_daily_double = 0;")
     
-    cursor.execute("SELECT id FROM clues;")
-    all_clue_ids = [row['id'] for row in cursor.fetchall()]
+    # Grab clue IDs for the current round
+    cursor.execute("""
+        SELECT clues.id FROM clues
+        JOIN categories ON clues.category_id = categories.id
+        WHERE categories.round_name = ?;
+    """, (round_name,))
+    
+    available_clue_ids = [row['id'] for row in cursor.fetchall()]
 
-    daily_double_id = random.choice(all_clue_ids)
-    cursor.execute("UPDATE clues SET is_daily_double = 1 WHERE id = ?;", (daily_double_id,))
-    connection.commit()
+    # Daily Double Assignment (1 for single, 2 for double)
+    if available_clue_ids and round_name != "Final Jeopardy":
+        num_daily_doubles = 2 if round_name == "Double Jeopardy" else 1
+        # Pick random unique IDs
+        daily_double_ids = random.sample(available_clue_ids, num_daily_doubles)
+
+        for dd_id in daily_double_ids:
+            cursor.execute("UPDATE clues SET is_daily_double = 1 WHERE id = ?;", (dd_id,))
+        connection.commit()
 
     # Master game board dictionary
     board_data = {}
 
-    # Fetch all categories
-    cursor.execute("SELECT * FROM categories;")
+    # Grab categories for the current round
+    cursor.execute("SELECT * FROM categories WHERE round_name = ?;", (round_name,))
     categories_results = cursor.fetchall()
 
-    # Loop through each category
     for category_row in categories_results:
-        # Grab category variables for this category
         cat_id = category_row["id"]
         cat_title = category_row["title"]
 
-        # Fetch clues for this category
         cursor.execute("SELECT * FROM clues WHERE category_id = ? ORDER BY dollar_value", (cat_id,))
         clues_results = cursor.fetchall()
 
-        # Unpack SQLite rows into python list of dictionaries
         clean_clues_list = []
         for clue_row in clues_results:
             clean_clue = {
                 "value": clue_row["dollar_value"],
                 "clue": clue_row["clue_text"],
-                "answer": clue_row["correct_response"]
+                "answer": clue_row["correct_response"],
+                "is_daily_double": bool(clue_row["is_daily_double"])
             }
             clean_clues_list.append(clean_clue)
 
-        # Attach cleaned clues list to master dictionary under their category
         board_data[cat_title] = clean_clues_list
     
     connection.close()
-
     return board_data
 
 # Collect player information and insert into SQL table. input is a list of players

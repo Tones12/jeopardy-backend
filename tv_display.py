@@ -6,14 +6,13 @@ import logging
 from flask import Flask
 from game_logic import generate_board
 
-# --- DISABLE FLASK TERMINAL SPAM ---
+# Flask spams the terminal, this disables it
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
 
-# --- THE MAILBOX ---
 buzzer_queue = queue.Queue()
 
-# --- THE WEB SERVER ---
+# local Flask web server
 app = Flask(__name__)
 
 @app.route('/<player_num>')
@@ -94,29 +93,38 @@ def main():
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("This is Jeopardy")
 
-    print("Fetching board data from database...")
-    board_data = generate_board()
-    categories = list(board_data.keys())
-
-    num_cols = len(categories)
-    num_rows = 6  
-    col_width = WIDTH // num_cols 
-    row_height = (HEIGHT - 60) // num_rows 
-
     header_font = pygame.font.SysFont('impact', 36)
     value_font = pygame.font.SysFont('impact', 54)
     clue_font = pygame.font.SysFont('arial', 24)
 
-    # --- GAME STATE TRACKERS ---
+    # Round state
+    rounds = ["Jeopardy", "Double Jeopardy", "Final Jeopardy"]
+    current_round_idx = 0
+    
+    # Dynamic Grid Loader
+    def load_round_state(idx):
+        b_data = generate_board(rounds[idx])
+        cats = list(b_data.keys())
+        cols = max(len(cats), 1)
+        # Final Jeopardy only needs 2 rows (1 Header, 1 Clue Box)
+        rows = 6 if idx < 2 else 2
+        c_w = WIDTH // cols
+        r_h = (HEIGHT - 60) // rows
+        return b_data, cats, cols, rows, c_w, r_h
+
+    print(f"Loading {rounds[current_round_idx]}...")
+    board_data, categories, num_cols, num_rows, col_width, row_height = load_round_state(current_round_idx)
+
+    # Game state trackers
     active_clue = None      
     active_col_row = None   
     current_buzzer = None   
     player_scores = {"1": 0, "2": 0, "3": 0, "4": 0}
-    is_wager_screen = False 
-    wager_text = ""         
+    is_wager_screen = False
+    wager_text = ""
     revealed_clues = set()
 
-    # --- LAUNCH WEB SERVER ---
+    # Setup web server
     print("Starting Web Server for Buzzers...")
     web_thread = threading.Thread(target=run_flask_server, daemon=True)
     web_thread.start()

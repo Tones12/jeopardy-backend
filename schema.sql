@@ -1,6 +1,7 @@
 CREATE TABLE categories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    title TEXT NOT NULL
+    title TEXT NOT NULL,
+    round_name TEXT DEFAULT 'Jeopardy'
 );
 
 CREATE TABLE clues (
