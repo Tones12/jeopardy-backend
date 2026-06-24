@@ -2,52 +2,8 @@ import pygame
 import sys
 import threading
 import queue
-import logging
-from flask import Flask
 from game_logic import generate_board
-
-# Flask spams the terminal, this disables it
-log = logging.getLogger('werkzeug')
-log.setLevel(logging.ERROR)
-
-buzzer_queue = queue.Queue()
-
-# local Flask web server
-app = Flask(__name__)
-
-@app.route('/<player_num>')
-def buzzer_page(player_num):
-    colors = {"1": "red", "2": "blue", "3": "green", "4": "purple"}
-    bg_color = colors.get(player_num, "gray")
-    return f"""
-    <html>
-        <head>
-            <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-            <style>
-                body {{ display: flex; justify-content: center; align-items: center; height: 100vh; background-color: #222; margin: 0; }}
-                .buzzer {{ width: 80vw; height: 80vw; max-width: 400px; max-height: 400px; border-radius: 50%; 
-                           background-color: {bg_color}; color: white; font-size: 50px; font-weight: bold; border: 10px solid black; }}
-                .buzzer:active {{ opacity: 0.5; transform: scale(0.95); }}
-            </style>
-        </head>
-        <body>
-            <button class="buzzer" onclick="sendBuzz()">PLAYER {player_num}</button>
-            <script>
-                function sendBuzz() {{
-                    fetch('/buzz/{player_num}', {{ method: 'POST' }});
-                }}
-            </script>
-        </body>
-    </html>
-    """
-
-@app.route('/buzz/<player_num>', methods=['POST'])
-def buzz(player_num):
-    buzzer_queue.put(player_num)
-    return "OK", 200
-
-def run_flask_server():
-    app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
+from buzzer_server import run_flask_server, buzzer_queue, registered_players
 
 # --- CONFIGURATION ---
 WIDTH = 1200
@@ -97,17 +53,14 @@ def main():
     value_font = pygame.font.SysFont('impact', 54)
     clue_font = pygame.font.SysFont('arial', 24)
 
-    # Round state
     rounds = ["Jeopardy", "Double Jeopardy", "Final Jeopardy"]
     current_round_idx = 0
-    
-    # Dynamic Grid Loader
+
     def load_round_state(idx):
         b_data = generate_board(rounds[idx])
         cats = list(b_data.keys())
         cols = max(len(cats), 1)
-        # Final Jeopardy only needs 2 rows (1 Header, 1 Clue Box)
-        rows = 6 if idx < 2 else 2
+        rows = 6 if idx < 2 else 2 
         c_w = WIDTH // cols
         r_h = (HEIGHT - 60) // rows
         return b_data, cats, cols, rows, c_w, r_h
@@ -115,29 +68,25 @@ def main():
     print(f"Loading {rounds[current_round_idx]}...")
     board_data, categories, num_cols, num_rows, col_width, row_height = load_round_state(current_round_idx)
 
-    # Game state trackers
     active_clue = None      
     active_col_row = None   
     current_buzzer = None   
     player_scores = {"1": 0, "2": 0, "3": 0, "4": 0}
-    is_wager_screen = False
-    wager_text = ""
+    is_wager_screen = False 
+    wager_text = ""         
     revealed_clues = set()
     is_game_over = False
 
-    # Setup web server
     print("Starting Web Server for Buzzers...")
     web_thread = threading.Thread(target=run_flask_server, daemon=True)
     web_thread.start()
 
     running = True
     while running:
-        # Event handling during game
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
             
-            # --- NEW HOST CONTROL: ADVANCE ROUND (SPACE KEY) ---
             elif event.type == pygame.KEYDOWN and not active_clue and not is_wager_screen:
                 if event.key == pygame.K_SPACE: 
                     if current_round_idx < 2:
@@ -148,12 +97,13 @@ def main():
                         current_buzzer = None
                         while not buzzer_queue.empty():
                             buzzer_queue.get_nowait()
-                    elif current_round_idx == 2: # <--- NEW: End the game!
+                    elif current_round_idx == 2:
                         print("--- CALCULATING FINAL SCORES ---")
                         is_game_over = True
-            
-            # STATE A: Main Board Clicks
-            elif event.type == pygame.MOUSEBUTTONDOWN and not active_clue:
+                        from game_logic import save_game_results
+                        save_game_results(player_scores, registered_players)
+
+            elif event.type == pygame.MOUSEBUTTONDOWN and not active_clue and not is_game_over:
                 click_x, click_y = event.pos
                 clicked_col = click_x // col_width
                 clicked_row = click_y // row_height
@@ -171,7 +121,6 @@ def main():
                     while not buzzer_queue.empty():
                         buzzer_queue.get_nowait()
 
-            # STATE B: Daily Double Wager Typing
             elif event.type == pygame.KEYDOWN and is_wager_screen:
                 if event.key == pygame.K_RETURN and wager_text != "":
                     active_clue['value'] = int(wager_text)
@@ -181,7 +130,6 @@ def main():
                 elif event.unicode.isnumeric():
                     wager_text += event.unicode  
 
-            # STATE C: Host Controls (Y/N/ESC)
             elif event.type == pygame.KEYDOWN and active_clue and not is_wager_screen:
                 if event.key == pygame.K_ESCAPE: 
                     revealed_clues.add(active_col_row)
@@ -199,35 +147,25 @@ def main():
                     while not buzzer_queue.empty():
                         buzzer_queue.get_nowait()
 
-        # --- 2. MAILBOX CHECK ---
-        # Note: We disable buzzers entirely during Final Jeopardy!
         if active_clue and not current_buzzer and not is_wager_screen and current_round_idx != 2:
             try:
                 current_buzzer = buzzer_queue.get_nowait()
             except queue.Empty:
                 pass
 
-        # --- 3. PAINT THE GRID OR LEADERBOARD ---
         screen.fill(BLACK)
         
         if is_game_over:
-            # Sort players by score, highest to lowest
             sorted_players = sorted(player_scores.items(), key=lambda x: x[1], reverse=True)
-            
             title_rect = pygame.Rect(0, 50, WIDTH, 100)
             draw_text_centered(screen, "FINAL STANDINGS", value_font, GOLD, title_rect)
-            
-            # Loop through the sorted list and draw each player
             for index, (p_num, score) in enumerate(sorted_players):
-                # The winner gets Gold text, everyone else gets White
+                display_name = registered_players.get(p_num, f"Player {p_num}")
                 color = GOLD if index == 0 else WHITE
-                text = f"{index + 1}. Player {p_num}   -   ${score}"
-                
+                text = f"{index + 1}. {display_name}   -   ${score}"
                 row_rect = pygame.Rect(0, 200 + (index * 100), WIDTH, 100)
                 draw_text_centered(screen, text, value_font, color, row_rect)
-                
         else:
-            # Draw the normal grid
             for col_idx, category_name in enumerate(categories):
                 header_rect = pygame.Rect(col_idx * col_width, 0, col_width, row_height)
                 pygame.draw.rect(screen, JEOPARDY_BLUE, header_rect)
@@ -246,14 +184,12 @@ def main():
                     if (col_idx, screen_row) in revealed_clues:
                         pass 
                     else:
-                        # Dynamic formatting for Final Jeopardy
                         if current_round_idx == 2:
                             box_text = "FINAL JEOPARDY"
                         else:
                             box_text = f"${clue['value']}"
                         draw_text_centered(screen, box_text, value_font, GOLD, clue_rect)
 
-        # --- 4. THE FULL-SCREEN OVERLAY ---
         if active_clue:
             overlay_rect = pygame.Rect(100, 100, WIDTH - 200, HEIGHT - 200)
             pygame.draw.rect(screen, JEOPARDY_BLUE, overlay_rect)
@@ -266,13 +202,14 @@ def main():
             else:
                 draw_text_wrapped(screen, active_clue['clue'], value_font, WHITE, overlay_rect)
                 if current_buzzer:
+                    display_name = registered_players.get(current_buzzer, f"Player {current_buzzer}")
                     banner_rect = pygame.Rect(100, HEIGHT - 180, WIDTH - 200, 80)
                     pygame.draw.rect(screen, BLACK, banner_rect)
                     pygame.draw.rect(screen, WHITE, banner_rect, 3)
-                    alert_text = f"🚨 PLAYER {current_buzzer} BUZZED! (Y=Correct, N=Incorrect) 🚨"
+                    alert_text = f"🚨 {display_name.upper()} BUZZED! (Y=Correct, N=Incorrect) 🚨"
                     draw_text_centered(screen, alert_text, header_font, GOLD, banner_rect)
 
-        # --- 5. THE SCOREBOARD ---
+        # --- THE SCOREBOARD ---
         score_rect = pygame.Rect(0, HEIGHT - 60, WIDTH, 60)
         pygame.draw.rect(screen, BLACK, score_rect)
         pygame.draw.line(screen, WHITE, (0, HEIGHT - 60), (WIDTH, HEIGHT - 60), 3)
@@ -280,13 +217,14 @@ def main():
         player_width = WIDTH // 4
         for i in range(1, 5):
             p_num = str(i)
+            display_name = registered_players.get(p_num, f"Slot {p_num} [Empty]")
             score_color = WHITE
             if player_scores[p_num] > 0:
                 score_color = (100, 255, 100) 
             elif player_scores[p_num] < 0:
                 score_color = (255, 100, 100) 
                 
-            score_text = f"Player {p_num}: ${player_scores[p_num]}"
+            score_text = f"{display_name}: ${player_scores[p_num]}"
             p_rect = pygame.Rect((i - 1) * player_width, HEIGHT - 60, player_width, 60)
             draw_text_centered(screen, score_text, clue_font, score_color, p_rect)
 

@@ -1,37 +1,21 @@
-CREATE TABLE categories (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    title TEXT NOT NULL,
-    round_name TEXT DEFAULT 'Jeopardy'
-);
-
-CREATE TABLE clues (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    category_id INTEGER,
-    clue_text TEXT NOT NULL,
-    correct_response TEXT NOT NULL,
-    dollar_value INTEGER NOT NULL,
-    is_daily_double INTEGER DEFAULT 0,
-    FOREIGN KEY (category_id) REFERENCES categories(id)
-);
-
+-- 1. PLAYERS TABLE: A master list of everyone who has ever played
 CREATE TABLE players (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    player_name TEXT NOT NULL
+    player_name TEXT UNIQUE NOT NULL
 );
 
+-- 2. GAMES TABLE: The master log of every game night session
 CREATE TABLE games (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    game_time TEXT NOT NULL,
-    current_round TEXT DEFAULT "Jeopardy"
+    played_on DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE game_clue_state (
+-- 3. GAME RESULTS TABLE: The junction table linking the player, the game, and their score
+CREATE TABLE game_results (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     game_id INTEGER,
-    clue_id INTEGER,
-    is_revealed INTEGER DEFAULT 0,
-    answered_by_player_id INTEGER,
+    player_id INTEGER,
+    final_score INTEGER NOT NULL,
     FOREIGN KEY (game_id) REFERENCES games(id),
-    FOREIGN KEY (clue_id) REFERENCES clues(id),
-    FOREIGN KEY (answered_by_player_id) REFERENCES players(id)
+    FOREIGN KEY (player_id) REFERENCES players(id)
 );
