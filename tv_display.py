@@ -146,25 +146,29 @@ def main():
                 clicked_col = click_x // col_width
                 clicked_row = click_y // row_height
                 
-                # Only open the clue if it actually exists in the array
-                if (clicked_row - 1) < len(clue_list):
-                    active_clue = clue_list[clicked_row - 1]
-                    active_col_row = (clicked_col, clicked_row)
-                    current_buzzer = None
-                    
-                    # --- NEW: PUSH DATA TO IPAD ---
-                    host_state["is_active"] = True
-                    host_state["value"] = active_clue['value']
-                    host_state["clue"] = active_clue['clue']
-                    host_state["answer"] = active_clue['answer']
-                    host_state["buzzer_name"] = None
-                    
-                    if active_clue.get('is_daily_double', False):
-                        is_wager_screen = True
-                        wager_text = ""
-                    
-                    while not buzzer_queue.empty():
-                        buzzer_queue.get_nowait()
+                if clicked_row > 0 and (clicked_col, clicked_row) not in revealed_clues:
+                    category_name = categories[clicked_col]
+                    clue_list = board_data[category_name]
+
+                    # Only open the clue if it actually exists in the array
+                    if (clicked_row - 1) < len(clue_list):
+                        active_clue = clue_list[clicked_row - 1]
+                        active_col_row = (clicked_col, clicked_row)
+                        current_buzzer = None
+                        
+                        # --- NEW: PUSH DATA TO IPAD ---
+                        host_state["is_active"] = True
+                        host_state["value"] = active_clue['value']
+                        host_state["clue"] = active_clue['clue']
+                        host_state["answer"] = active_clue['answer']
+                        host_state["buzzer_name"] = None
+                        
+                        if active_clue.get('is_daily_double', False):
+                            is_wager_screen = True
+                            wager_text = ""
+                        
+                        while not buzzer_queue.empty():
+                            buzzer_queue.get_nowait()
 
             elif event.type == pygame.KEYDOWN and is_wager_screen:
                 if event.key == pygame.K_RETURN and wager_text != "":
