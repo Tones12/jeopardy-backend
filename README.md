@@ -1,4 +1,4 @@
-# jeopardy-backend
+# jeopardy-clone
 Personal Project 1 on Boot.Dev
 Creating a Jeopardy clone with a focus on backend functionality and less on the frontend bells and whistles.
 Development was spread out over a few months with lots of refactoring and tweaking.
