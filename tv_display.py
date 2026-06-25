@@ -48,7 +48,7 @@ def main():
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("This is Jeopardy")
 
-    header_font = pygame.font.SysFont('impact', 36)
+    header_font = pygame.font.SysFont('impact', 28) # Font size changed from 36 to 28
     value_font = pygame.font.SysFont('impact', 54)
     clue_font = pygame.font.SysFont('arial', 24)
 
@@ -146,9 +146,9 @@ def main():
                 clicked_col = click_x // col_width
                 clicked_row = click_y // row_height
                 
-                if clicked_row > 0 and (clicked_col, clicked_row) not in revealed_clues:
-                    category_name = categories[clicked_col]
-                    active_clue = board_data[category_name][clicked_row - 1]
+                # Only open the clue if it actually exists in the array
+                if (clicked_row - 1) < len(clue_list):
+                    active_clue = clue_list[clicked_row - 1]
                     active_col_row = (clicked_col, clicked_row)
                     current_buzzer = None
                     
@@ -208,7 +208,7 @@ def main():
                 header_rect = pygame.Rect(col_idx * col_width, 0, col_width, row_height)
                 pygame.draw.rect(screen, JEOPARDY_BLUE, header_rect)
                 pygame.draw.rect(screen, BLACK, header_rect, 3) 
-                draw_text_centered(screen, category_name.upper(), header_font, WHITE, header_rect)
+                draw_text_wrapped(screen, category_name.upper(), header_font, WHITE, header_rect)
 
                 clues = board_data[category_name]
                 for row_idx, clue in enumerate(clues):

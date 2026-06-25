@@ -37,23 +37,39 @@ def fetch_board_data(round_name, num_categories=5):
             })
 
         # 3. Select a random subset of categories to build the board
-        available_categories = list(categories_dict.keys())
+        required_clues = 1 if round_name == "Final Jeopardy" else 5
+        robust_categories = {name: clues for name, clues in categories_dict.items() if len(clues) >= required_clues}
+
+        available_categories = list(robust_categories.keys())
         
-        # Make sure we don't try to pick more categories than actually exist in the file!
+        if not available_categories:
+            print(f"❌ [Local API] Error: Not enough complete categories found for {round_name}!")
+            return {}
+
         safe_category_count = min(num_categories, len(available_categories))
-        
-        # Final Jeopardy only needs 1 category!
         if round_name == "Final Jeopardy":
             safe_category_count = 1
             
         selected_category_names = random.sample(available_categories, safe_category_count)
         
-        # 4. Build the final organized board dictionary
+        # --- THE DOLLAR VALUE FIX ---
+        # Set the base multiplier ($200 for Single, $400 for Double)
+        base_value = 200 if round_name == "Jeopardy" else 400
+        
         organized_board = {}
         for cat_name in selected_category_names:
-            # Sort the 5 clues by dollar value so they look right on the Pygame grid
-            sorted_clues = sorted(categories_dict[cat_name], key=lambda x: int(x["value"]))
-            organized_board[cat_name] = sorted_clues
+            # Sort the clues by their original historical difficulty
+            sorted_clues = sorted(robust_categories[cat_name], key=lambda x: int(x["value"]))
+            
+            # Slice EXACTLY the amount we need (prevents 6+ questions from breaking the grid)
+            sliced_clues = sorted_clues[:required_clues]
+            
+            # Overwrite the historical dollar values with perfect increments
+            for index, clue in enumerate(sliced_clues):
+                if round_name != "Final Jeopardy":
+                    clue["value"] = base_value * (index + 1)
+                    
+            organized_board[cat_name] = sliced_clues
 
         return organized_board
 
